@@ -811,7 +811,7 @@ app.delete('/marcar-vendido/:id', async (req, res) => {
 
   
   
-  // chat gpt
+ // chat gpt
 app.post("/chat", async (req: Request, res: Response) => {
   const { message } = req.body;
 
