@@ -1,29 +1,22 @@
 {
-  "name": "backend-arturoruedas",
+  "name": "backend_arturo_ruedas",
   "version": "1.0.0",
   "main": "dist/index.js",
   "scripts": {
+    "dev": "ts-node src/index.ts",
     "build": "tsc",
-    "start": "node dist/conexion.js",
-    "dev": "ts-node src/conexion.ts"
+    "start": "node dist/index.js"
   },
   "dependencies": {
-    "axios": "^1.12.2",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
-    "expo-server-sdk": "^4.0.0",
-    "express": "^4.21.2",
-    "nodemailer": "^7.0.6",
-    "pg": "^8.16.3"
+    "express": "^4.19.0",
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.0",
+    "pg": "^8.11.1"
   },
   "devDependencies": {
-    "@types/axios": "^0.9.36",
-    "@types/cors": "^2.8.19",
-    "@types/express": "^4.17.21",
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.1",
     "@types/node": "^20.0.0",
-    "@types/nodemailer": "^7.0.1",
-    "@types/pg": "^8.15.5",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.0.0"
+    "@types/express": "^4.17.21"
   }
 }
