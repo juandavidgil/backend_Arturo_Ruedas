@@ -4,8 +4,8 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/conexion.js",
-    "dev": "ts-node src/conexion.ts"
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts"
   },
   "dependencies": {
     "axios": "^1.12.2",
@@ -23,6 +23,7 @@
     "@types/node": "^20.0.0",
     "@types/nodemailer": "^7.0.1",
     "@types/pg": "^8.15.5",
+    "react-native-dotenv": "^3.4.11",
     "ts-node": "^10.9.2",
     "typescript": "^5.0.0"
   }

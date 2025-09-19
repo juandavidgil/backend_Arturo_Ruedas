@@ -46,7 +46,7 @@ pool.connect()
 
 
 const app = express();
-const PORT = process.env.PORT || 3001; 
+const PORT = process.env.PORT || 3000;
 
 // Configuración mejorada de CORS y middleware
 app.use(cors({
