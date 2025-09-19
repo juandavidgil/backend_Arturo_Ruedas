@@ -10,7 +10,26 @@ import { Expo } from "expo-server-sdk";
 
 const expo = new Expo();
 
-
+// Interfaz mínima de la respuesta de OpenAI
+interface OpenAIChatResponse {
+  id: string;
+  object: string;
+  created: number;
+  model: string;
+  choices: {
+    index: number;
+    message: {
+      role: string;
+      content: string;
+    };
+    finish_reason: string;
+  }[];
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+}
 dotenv.config();
 // Configuración mejorada de conexión PostgreSQL
 const pool = new Pool({
@@ -811,7 +830,7 @@ app.delete('/marcar-vendido/:id', async (req, res) => {
 
   
   
- // chat gpt
+ // Ruta para el chat
 app.post("/chat", async (req: Request, res: Response) => {
   const { message } = req.body;
 
@@ -820,7 +839,7 @@ app.post("/chat", async (req: Request, res: Response) => {
   }
 
   try {
-    const response = await axios.post(
+    const response = await axios.post<OpenAIChatResponse>(
       "https://api.openai.com/v1/chat/completions",
       {
         model: "gpt-4o",
@@ -836,8 +855,8 @@ app.post("/chat", async (req: Request, res: Response) => {
 
     const reply = response.data.choices[0].message.content;
     res.json({ reply });
-  } catch (error) {
-    console.error("Error al llamar a OpenAI:", error);
+  } catch (error: any) {
+    console.error("Error al llamar a OpenAI:", error.response?.data || error);
     res.status(500).json({ error: "Error interno al conectar con OpenAI" });
   }
 });
