@@ -1,0 +1,16 @@
+# dependencias
+node_modules/
+
+# archivos compilados de TypeScript
+dist/
+
+# variables de entorno
+.env
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# sistema
+.DS_Store
