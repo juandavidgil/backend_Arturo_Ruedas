@@ -307,32 +307,18 @@ app.get('/buscar', async (req: Request, res: Response) => {
 
 
 // Publicar artículo con múltiples fotos
-// Publicar artículo con múltiples fotos
+// Ruta para publicar artículo con fotos en Supabase
 app.post('/publicar_articulo', async (req: Request, res: Response) => {
-  const { 
-    nombre_Articulo, 
-    descripcion, 
-    precio, 
-    tipo_bicicleta, 
-    tipo_componente, 
-    fotos,        // array de fotos en base64
-    ID_usuario 
-  } = req.body;
+  const { nombre_Articulo, descripcion, precio, tipo_bicicleta, tipo_componente, fotos, ID_usuario } = req.body;
 
-  if (!ID_usuario) {
-    return res.status(400).json({ error: 'ID de usuario es requerido' });
-  }
-
-  if (!fotos || !Array.isArray(fotos) || fotos.length === 0) {
-    return res.status(400).json({ error: 'Se requiere al menos una foto' });
-  }
+  if (!ID_usuario) return res.status(400).json({ error: 'ID de usuario es requerido' });
+  if (!fotos || !Array.isArray(fotos) || fotos.length === 0) return res.status(400).json({ error: 'Se requiere al menos una foto' });
 
   const client = await pool.connect();
 
   try {
     await client.query('BEGIN');
 
-    // Insertar publicación
     const result = await client.query(
       `INSERT INTO com_ventas 
         (nombre_Articulo, descripcion, precio, tipo_bicicleta, tipo_componente, ID_usuario) 
@@ -343,40 +329,32 @@ app.post('/publicar_articulo', async (req: Request, res: Response) => {
 
     const idPublicacion = result.rows[0].id_publicacion;
 
-    // Subir fotos al bucket y guardar URLs
     for (let i = 0; i < fotos.length; i++) {
       const foto = fotos[i];
 
       // Detectar tipo real de imagen
       const match = foto.match(/^data:image\/(\w+);base64,/);
-      if (!match) {
-        throw new Error('Formato de imagen inválido');
-      }
+      if (!match) throw new Error('Formato de imagen inválido');
       const tipo = match[1]; // 'png', 'jpeg', etc.
 
       // Convertir base64 a buffer
       const base64Data = foto.replace(/^data:image\/\w+;base64,/, "");
       const fotoBuffer = Buffer.from(base64Data, 'base64');
 
-      // Subir al bucket 'articulos' con tipo correcto
       const nombreArchivo = `publicaciones/${idPublicacion}/foto_${i}.${tipo}`;
+
+      // Subir al bucket
       const { error: uploadError } = await supabase.storage
         .from('articulos')
-        .upload(nombreArchivo, fotoBuffer, {
-          contentType: `image/${tipo}`,
-          upsert: true,
-        });
+        .upload(nombreArchivo, fotoBuffer, { contentType: `image/${tipo}`, upsert: true });
 
       if (uploadError) throw uploadError;
 
-      // Obtener URL pública correctamente
-      const { data } = supabase.storage
-        .from('articulos')
-        .getPublicUrl(nombreArchivo);
-
+      // Obtener URL pública
+      const { data } = supabase.storage.from('articulos').getPublicUrl(nombreArchivo);
       const publicUrl = data.publicUrl;
 
-      // Guardar URL en la tabla
+      // Guardar URL en la base de datos
       await client.query(
         `INSERT INTO com_ventas_fotos (ID_publicacion, url_foto) VALUES ($1, $2)`,
         [idPublicacion, publicUrl]
@@ -384,11 +362,7 @@ app.post('/publicar_articulo', async (req: Request, res: Response) => {
     }
 
     await client.query('COMMIT');
-
-    res.status(201).json({ 
-      mensaje: 'Artículo publicado con éxito',
-      ID_publicacion: idPublicacion
-    });
+    res.status(201).json({ mensaje: 'Artículo publicado con éxito', ID_publicacion: idPublicacion });
 
   } catch (error) {
     await client.query('ROLLBACK');
@@ -398,6 +372,7 @@ app.post('/publicar_articulo', async (req: Request, res: Response) => {
     client.release();
   }
 });
+
 
 
 
