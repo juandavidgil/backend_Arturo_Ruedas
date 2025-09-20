@@ -5,6 +5,14 @@ import nodemailer from 'nodemailer';
 import axios from "axios";
 import dotenv from "dotenv";
 import { Expo } from "expo-server-sdk";
+import { createClient } from '@supabase/supabase-js';
+
+
+export const supabase = createClient(
+  process.env.SUPABASE_URL || '',
+  process.env.SUPABASE_ANON_KEY || ''
+);
+
 
 dotenv.config();
 
@@ -36,7 +44,7 @@ interface OpenAIChatResponse {
 // Configuración mejorada de conexión PostgreSQL
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: false, // ❌ desactivar SSL para local
+  ssl: { rejectUnauthorized: false }, // obligatorio para Supabase
 });
 
 
@@ -253,7 +261,7 @@ app.get('/buscar', async (req: Request, res: Response) => {
 
 
 // Publicar artículo con múltiples fotos
-
+// Publicar artículo con múltiples fotos
 app.post('/publicar_articulo', async (req: Request, res: Response) => {
   const { 
     nombre_Articulo, 
@@ -261,7 +269,7 @@ app.post('/publicar_articulo', async (req: Request, res: Response) => {
     precio, 
     tipo_bicicleta, 
     tipo_componente, 
-    fotos,        // ahora viene un array de fotos
+    fotos,        // array de fotos en base64
     ID_usuario 
   } = req.body;
 
@@ -274,6 +282,7 @@ app.post('/publicar_articulo', async (req: Request, res: Response) => {
   }
 
   const client = await pool.connect();
+
   try {
     await client.query('BEGIN');
 
@@ -288,11 +297,35 @@ app.post('/publicar_articulo', async (req: Request, res: Response) => {
 
     const idPublicacion = result.rows[0].id_publicacion;
 
-    // Insertar fotos relacionadas
-    for (const foto of fotos) {
+    // Subir fotos al bucket y guardar URLs
+    for (let i = 0; i < fotos.length; i++) {
+      const foto = fotos[i];
+
+      // Convertir base64 a buffer
+      const base64Data = foto.replace(/^data:image\/\w+;base64,/, "");
+      const fotoBuffer = Buffer.from(base64Data, 'base64');
+
+      // Subir al bucket 'articulos'
+      const { error: uploadError } = await supabase.storage
+        .from('articulos')
+        .upload(`publicaciones/${idPublicacion}/foto_${i}.png`, fotoBuffer, {
+          contentType: 'image/png',
+          upsert: true,
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Obtener URL pública correctamente
+      const { data } = supabase.storage
+        .from('articulos')
+        .getPublicUrl(`publicaciones/${idPublicacion}/foto_${i}.png`);
+
+      const publicUrl = data.publicUrl;
+
+      // Guardar URL en la tabla
       await client.query(
         `INSERT INTO com_ventas_fotos (ID_publicacion, url_foto) VALUES ($1, $2)`,
-        [idPublicacion, foto]
+        [idPublicacion, publicUrl]
       );
     }
 
@@ -302,6 +335,7 @@ app.post('/publicar_articulo', async (req: Request, res: Response) => {
       mensaje: 'Artículo publicado con éxito',
       ID_publicacion: idPublicacion
     });
+
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error al publicar artículo:', error);
@@ -310,8 +344,6 @@ app.post('/publicar_articulo', async (req: Request, res: Response) => {
     client.release();
   }
 });
-
-
 
 
 // Guardar token de notificación en BD
