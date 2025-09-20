@@ -36,8 +36,9 @@ interface OpenAIChatResponse {
 // Configuración mejorada de conexión PostgreSQL
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }, // necesario para Supabase
+  ssl: false, // ❌ desactivar SSL para local
 });
+
 
 // Verificación mejorada de conexión
 pool.connect()
