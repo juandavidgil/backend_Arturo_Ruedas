@@ -13,7 +13,7 @@ import { createClient } from '@supabase/supabase-js';
 dotenv.config();
 export const supabase = createClient(
   process.env.SUPABASE_URL!,
-  process.env.SUPABASE_ANON_KEY!
+  process.env.SUPABASE_KEY!
 );
 
 console.log('Supabase URL:', process.env.SUPABASE_URL);
@@ -47,7 +47,7 @@ interface OpenAIChatResponse {
 // Configuración mejorada de conexión PostgreSQL
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }, // obligatorio para Supabase
+  ssl: { rejectUnauthorized: false },
 });
 
 
