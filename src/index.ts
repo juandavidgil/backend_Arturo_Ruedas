@@ -91,11 +91,12 @@ const validarCamposUsuario = (req: Request, res: Response, next: Function) => {
   next();
 };
 
-// Ruta para registrar usuario - Mejorada
+// Ruta para registrar usuario con foto en Supabase
 app.post('/registrar', validarCamposUsuario, async (req: Request, res: Response) => {
   try {
     const { nombre, correo, contraseña, telefono, foto } = req.body;
-    
+
+    // Verificar si el usuario ya existe
     const usuarioExistente = await pool.query(
       'SELECT 1 FROM usuario WHERE correo = $1',
       [correo]
@@ -105,20 +106,61 @@ app.post('/registrar', validarCamposUsuario, async (req: Request, res: Response)
       return res.status(409).json({ error: 'El correo ya está registrado' });
     }
 
+    let publicUrl = null;
+
+    if (foto) {
+      // Detectar tipo real de imagen
+      const match = foto.match(/^data:image\/(\w+);base64,/);
+      if (!match) {
+        return res.status(400).json({ error: 'Formato de imagen inválido' });
+      }
+      const tipo = match[1]; // 'png', 'jpeg', etc.
+
+      // Convertir base64 a buffer
+      const base64Data = foto.replace(/^data:image\/\w+;base64,/, "");
+      const fotoBuffer = Buffer.from(base64Data, 'base64');
+
+      // Generar nombre único para la foto
+      const nombreArchivo = `usuarios/${correo}_${Date.now()}.${tipo}`;
+
+      // Subir foto al bucket 'usuarios'
+      const { error: uploadError } = await supabase.storage
+        .from('usuarios')
+        .upload(nombreArchivo, fotoBuffer, {
+          contentType: `image/${tipo}`,
+          upsert: true,
+        });
+
+      if (uploadError) {
+        console.error('Error al subir la foto:', uploadError);
+        return res.status(500).json({ error: 'No se pudo subir la foto' });
+      }
+
+      // Obtener URL pública
+      const { data } = supabase.storage
+        .from('usuarios')
+        .getPublicUrl(nombreArchivo);
+
+      publicUrl = data.publicUrl;
+    }
+
+    // Insertar usuario en la base de datos con URL pública de la foto
     const result = await pool.query(
-      'INSERT INTO usuario (nombre, correo, contraseña, telefono, foto) VALUES ($1, $2, $3, $4, $5) RETURNING id_usuario, nombre, correo',
-      [nombre, correo, contraseña, telefono, foto]
+      'INSERT INTO usuario (nombre, correo, contraseña, telefono, foto) VALUES ($1, $2, $3, $4, $5) RETURNING id_usuario, nombre, correo, foto',
+      [nombre, correo, contraseña, telefono, publicUrl]
     );
-    
+
     res.status(201).json({ 
       mensaje: 'Usuario registrado correctamente',
       usuario: result.rows[0]
     });
+
   } catch (error) {
     console.error('Error al registrar usuario:', error);
-    res.status(500).json({ error: 'Error en el servidorrr' });
+    res.status(500).json({ error: 'Error en el servidor' });
   }
 });
+
 
 // Guardar temporalmente los códigos de recuperación
 const codigosReset = new Map();
@@ -263,6 +305,7 @@ app.get('/buscar', async (req: Request, res: Response) => {
 });
 
 
+
 // Publicar artículo con múltiples fotos
 // Publicar artículo con múltiples fotos
 app.post('/publicar_articulo', async (req: Request, res: Response) => {
@@ -304,15 +347,23 @@ app.post('/publicar_articulo', async (req: Request, res: Response) => {
     for (let i = 0; i < fotos.length; i++) {
       const foto = fotos[i];
 
+      // Detectar tipo real de imagen
+      const match = foto.match(/^data:image\/(\w+);base64,/);
+      if (!match) {
+        throw new Error('Formato de imagen inválido');
+      }
+      const tipo = match[1]; // 'png', 'jpeg', etc.
+
       // Convertir base64 a buffer
       const base64Data = foto.replace(/^data:image\/\w+;base64,/, "");
       const fotoBuffer = Buffer.from(base64Data, 'base64');
 
-      // Subir al bucket 'articulos'
+      // Subir al bucket 'articulos' con tipo correcto
+      const nombreArchivo = `publicaciones/${idPublicacion}/foto_${i}.${tipo}`;
       const { error: uploadError } = await supabase.storage
         .from('articulos')
-        .upload(`publicaciones/${idPublicacion}/foto_${i}.png`, fotoBuffer, {
-          contentType: 'image/png',
+        .upload(nombreArchivo, fotoBuffer, {
+          contentType: `image/${tipo}`,
           upsert: true,
         });
 
@@ -321,7 +372,7 @@ app.post('/publicar_articulo', async (req: Request, res: Response) => {
       // Obtener URL pública correctamente
       const { data } = supabase.storage
         .from('articulos')
-        .getPublicUrl(`publicaciones/${idPublicacion}/foto_${i}.png`);
+        .getPublicUrl(nombreArchivo);
 
       const publicUrl = data.publicUrl;
 
@@ -347,6 +398,7 @@ app.post('/publicar_articulo', async (req: Request, res: Response) => {
     client.release();
   }
 });
+
 
 
 // Guardar token de notificación en BD
