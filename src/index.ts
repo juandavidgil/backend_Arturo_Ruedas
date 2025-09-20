@@ -5,12 +5,13 @@ import nodemailer from 'nodemailer';
 import axios from "axios";
 import dotenv from "dotenv";
 import { Expo } from "expo-server-sdk";
-/* import bcrypt from "bcryptjs"; */
+
+dotenv.config();
 
 
 const expo = new Expo();
 
-// Interfaz mínima de la respuesta de OpenAI
+
 interface OpenAIChatResponse {
   id: string;
   object: string;
@@ -30,13 +31,12 @@ interface OpenAIChatResponse {
     total_tokens: number;
   };
 }
-dotenv.config();
+
+
 // Configuración mejorada de conexión PostgreSQL
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false, 
-  },
+  ssl: { rejectUnauthorized: false }, // necesario para Supabase
 });
 
 // Verificación mejorada de conexión
