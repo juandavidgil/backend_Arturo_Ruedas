@@ -6,6 +6,7 @@ import axios from "axios";
 import dotenv from "dotenv";
 import { Expo } from "expo-server-sdk";
 import { createClient } from '@supabase/supabase-js';
+import { Resend } from "resend";
 
 
 
@@ -15,9 +16,9 @@ export const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_KEY!
 );
-
-console.log('Supabase URL:', process.env.SUPABASE_URL);
-console.log('Supabase Key:', process.env.SUPABASE_KEY ? 'ok' : 'missing');
+const resend = new Resend(process.env.API_SEND_EMAILS);
+// Guardar temporalmente los códigos de recuperación
+const codigosReset = new Map();
 
 
 const expo = new Expo();
@@ -53,8 +54,8 @@ const pool = new Pool({
 
 // Verificación mejorada de conexión
 pool.connect()
-  .then(() => console.log("✅ Conexión exitosa a Supabase"))
-  .catch((err) => console.error("❌ Error al conectar a Supabase:", err));
+.then(() => console.log("✅ Conexión exitosa a Supabase"))
+.catch((err) => console.error("❌ Error al conectar a Supabase:", err));
 
 
 const app = express();
@@ -130,20 +131,20 @@ app.post('/registrar', validarCamposUsuario, async (req: Request, res: Response)
           contentType: `image/${tipo}`,
           upsert: true,
         });
-
-      if (uploadError) {
-        console.error('Error al subir la foto:', uploadError);
-        return res.status(500).json({ error: 'No se pudo subir la foto' });
-      }
-
-      // Obtener URL pública
-      const { data } = supabase.storage
+        
+        if (uploadError) {
+          console.error('Error al subir la foto:', uploadError);
+          return res.status(500).json({ error: 'No se pudo subir la foto' });
+        }
+        
+        // Obtener URL pública
+        const { data } = supabase.storage
         .from('usuarios')
         .getPublicUrl(nombreArchivo);
-
-      publicUrl = data.publicUrl;
+        
+        publicUrl = data.publicUrl;
     }
-
+    
     // Insertar usuario en la base de datos con URL pública de la foto
     const result = await pool.query(
       'INSERT INTO usuario (nombre, correo, contraseña, telefono, foto) VALUES ($1, $2, $3, $4, $5) RETURNING id_usuario, nombre, correo, foto',
@@ -162,8 +163,6 @@ app.post('/registrar', validarCamposUsuario, async (req: Request, res: Response)
 });
 
 
-// Guardar temporalmente los códigos de recuperación
-const codigosReset = new Map();
 
 // Ruta para iniciar sesión - Mejorada
 app.post('/iniciar-sesion', async (req: Request, res: Response) => {
@@ -209,16 +208,9 @@ app.post("/enviar-correo-reset", async (req, res) => {
     const codigo = Math.floor(100000 + Math.random() * 900000).toString();
     codigosReset.set(correo, codigo);
 
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-    });
-
-    await transporter.sendMail({
-      from: `"Soporte Ruedas" <${process.env.EMAIL_USER}>`,
+    // enviar email usando Resend
+    await resend.emails.send({
+      from: "Soporte Ruedas <onboarding@resend.dev>", // puedes usar este temporalmente
       to: correo,
       subject: "Código para restablecer contraseña",
       text: `Tu código es: ${codigo}`,
@@ -231,7 +223,7 @@ app.post("/enviar-correo-reset", async (req, res) => {
   }
 });
 
-// 🔄 Restablecer contraseña
+//restablecer contraseña
 app.post("/restablecer-contrasena", async (req, res) => {
   const { correo, codigo, nuevaContraseña } = req.body;
   const codigoGuardado = codigosReset.get(correo);
@@ -241,7 +233,6 @@ app.post("/restablecer-contrasena", async (req, res) => {
   }
 
   try {
-    // Guardar la contraseña tal cual, sin encriptarla
     await pool.query('UPDATE usuario SET "contraseña" = $1 WHERE correo = $2', [nuevaContraseña, correo]);
     codigosReset.delete(correo);
 
