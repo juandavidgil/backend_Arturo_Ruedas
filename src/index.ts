@@ -122,7 +122,7 @@ app.post('/registrar', validarCamposUsuario, async (req: Request, res: Response)
       const fotoBuffer = Buffer.from(base64Data, 'base64');
 
       // Generar nombre único para la foto
-      const nombreArchivo = `usuarios/${correo}_${Date.now()}.${tipo}`;
+      const nombreArchivo = `articulos/${correo}_${Date.now()}.${tipo}`;
 
       // Subir foto al bucket 'usuarios'
       const { error: uploadError } = await supabase.storage
