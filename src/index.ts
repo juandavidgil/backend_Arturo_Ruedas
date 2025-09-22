@@ -126,7 +126,7 @@ app.post('/registrar', validarCamposUsuario, async (req: Request, res: Response)
 
       // Subir foto al bucket 'usuarios'
       const { error: uploadError } = await supabase.storage
-        .from('usuarios')
+        .from('articulos')
         .upload(nombreArchivo, fotoBuffer, {
           contentType: `image/${tipo}`,
           upsert: true,
