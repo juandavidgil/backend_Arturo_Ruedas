@@ -94,20 +94,24 @@ const validarCamposUsuario = (req: Request, res: Response, next: Function) => {
 
 // Ruta para registrar usuario con foto en Supabase
 app.post('/registrar', validarCamposUsuario, async (req: Request, res: Response) => {
-  try {
-    const { nombre, correo, contraseña, telefono, foto } = req.body;
+  const { nombre, correo, contraseña, telefono, foto } = req.body;
 
+  const client = await pool.connect();
+
+  try {
     // Verificar si el usuario ya existe
     const usuarioExistente = await pool.query(
       'SELECT 1 FROM usuario WHERE correo = $1',
       [correo]
     );
-    
+
     if (usuarioExistente.rows.length > 0) {
       return res.status(409).json({ error: 'El correo ya está registrado' });
     }
 
-    let publicUrl = null;
+    await client.query('BEGIN');
+
+    let publicUrl: string | null = null;
 
     if (foto) {
       // Detectar tipo real de imagen
@@ -122,34 +126,33 @@ app.post('/registrar', validarCamposUsuario, async (req: Request, res: Response)
       const fotoBuffer = Buffer.from(base64Data, 'base64');
 
       // Generar nombre único para la foto
-      const nombreArchivo = `articulos/${correo}_${Date.now()}.${tipo}`;
+      const nombreArchivo = `usuarios/${correo}_${Date.now()}.${tipo}`;
 
-      // Subir foto al bucket 'usuarios'
+      // Subir foto al bucket 'articulos' (igual que publicar_articulo)
       const { error: uploadError } = await supabase.storage
         .from('articulos')
         .upload(nombreArchivo, fotoBuffer, {
           contentType: `image/${tipo}`,
           upsert: true,
         });
-        
-        if (uploadError) {
-          console.error('Error al subir la foto:', uploadError);
-          return res.status(500).json({ error: 'No se pudo subir la foto' });
-        }
-        
-        // Obtener URL pública
-        const { data } = supabase.storage
-        .from('usuarios')
-        .getPublicUrl(nombreArchivo);
-        
-        publicUrl = data.publicUrl;
+
+      if (uploadError) {
+        console.error('Error al subir la foto:', uploadError);
+        return res.status(500).json({ error: 'No se pudo subir la foto' });
+      }
+
+      // Obtener URL pública
+      const { data } = supabase.storage.from('articulos').getPublicUrl(nombreArchivo);
+      publicUrl = data.publicUrl;
     }
-    
+
     // Insertar usuario en la base de datos con URL pública de la foto
-    const result = await pool.query(
+    const result = await client.query(
       'INSERT INTO usuario (nombre, correo, contraseña, telefono, foto) VALUES ($1, $2, $3, $4, $5) RETURNING id_usuario, nombre, correo, foto',
       [nombre, correo, contraseña, telefono, publicUrl]
     );
+
+    await client.query('COMMIT');
 
     res.status(201).json({ 
       mensaje: 'Usuario registrado correctamente',
@@ -157,8 +160,11 @@ app.post('/registrar', validarCamposUsuario, async (req: Request, res: Response)
     });
 
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Error al registrar usuario:', error);
     res.status(500).json({ error: 'Error en el servidor' });
+  } finally {
+    client.release();
   }
 });
 
@@ -297,7 +303,7 @@ app.get('/buscar', async (req: Request, res: Response) => {
 
 
 
-// Publicar artículo con múltiples fotos
+
 // Ruta para publicar artículo con fotos en Supabase
 app.post('/publicar_articulo', async (req: Request, res: Response) => {
   const { nombre_Articulo, descripcion, precio, tipo_bicicleta, tipo_componente, fotos, ID_usuario } = req.body;
