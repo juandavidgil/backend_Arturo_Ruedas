@@ -967,37 +967,39 @@ app.put("/CambiarContrasena/:id", async (req, res) => {
 
 
 // Endpoint para obtener los artículos relacionados al vendedor
-app.get('/PublicacionesRelacionadasVendedor/:id_usuario', async (req: Request, res: Response) => {
+
+
+app.get('/PublicacionesRelacionadasVendedor/:ID_usuario', async (req, res) => {
   try {
-    const { id_usuario } = req.params;
-    if (!id_usuario || isNaN(Number(id_usuario))) {
-      return res.status(400).json({ error: 'ID de usuario inválido' });
-    }
+    const { ID_usuario } = req.params;
 
     const result = await pool.query(
-      `SELECT 
-        cv.ID_publicacion as id,
-        cv.nombre_Articulo,
+      `
+      SELECT 
+        cv.ID_publicacion AS id,
+        cv.nombre_Articulo as  nombre_articulo,
         cv.descripcion,
         cv.precio,
         cv.tipo_bicicleta,
-        u.nombre as nombre_vendedor,
-        u.telefono,
-        u.foto,
-        cv.ID_usuario as id_vendedor,
-        COALESCE(json_agg(f.url_foto) FILTER (WHERE f.url_foto IS NOT NULL), '[]') as fotos
-      FROM carrito c
-      JOIN com_ventas cv ON c.ID_publicacion = cv.ID_publicacion 
+        COALESCE(
+          json_agg(cvf.url_foto) FILTER (WHERE cvf.url_foto IS NOT NULL),
+          '[]'
+        ) AS fotos
+      FROM com_ventas cv
       JOIN usuario u ON cv.ID_usuario = u.ID_usuario
-      LEFT JOIN com_ventas_fotos f ON cv.ID_publicacion = f.ID_publicacion
-      WHERE c.ID_usuario = $1
-      GROUP BY cv.ID_publicacion, u.nombre, u.telefono, u.foto, cv.ID_usuario`,
-      [id_usuario]
+      LEFT JOIN com_ventas_fotos cvf ON cv.ID_publicacion = cvf.ID_publicacion
+      WHERE cv.ID_usuario = $1
+      GROUP BY cv.ID_publicacion, cv.nombre_Articulo, cv.descripcion, cv.precio, cv.tipo_bicicleta
+      ORDER BY cv.ID_publicacion DESC;
+      `,
+      [ID_usuario]
     );
 
+    console.log('Publicaciones obtenidas:', result.rows.length);
     res.status(200).json(result.rows);
+
   } catch (error) {
-    console.error('Error al obtener publicaciones del vendedor:', error);
+    console.error('Error al obtener publicaciones:', error);
     res.status(500).json({ error: 'Error en el servidor' });
   }
 });
