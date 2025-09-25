@@ -11,6 +11,7 @@ import { Resend } from "resend";
 
 
 
+
 dotenv.config();
 export const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -268,8 +269,8 @@ app.get('/buscar', async (req: Request, res: Response) => {
         cv.precio, 
         cv.tipo_bicicleta, 
         cv.tipo_componente,
-        cv.ID_usuario,
-        u.nombre as nombre_vendedor,
+        cv.ID_usuario AS id_vendedor,
+        u.nombre AS nombre_vendedor,
         u.telefono,
         u.foto,
         COALESCE(
@@ -371,9 +372,9 @@ app.post('/publicar_articulo', async (req: Request, res: Response) => {
 });
 
 
+//prueba de notificacion en apk 
 
 
-// Guardar token de notificación en BD
 app.post("/guardar-token", async (req: Request, res: Response) => {
   try {
     const { ID_usuario, token } = req.body;
@@ -387,64 +388,73 @@ app.post("/guardar-token", async (req: Request, res: Response) => {
     }
 
     await pool.query(
-      "INSERT INTO user_tokens (ID_usuario, token) VALUES ($1, $2) ON CONFLICT (token) DO NOTHING",
+      `INSERT INTO user_tokens (ID_usuario, token)
+       VALUES ($1, $2)
+       ON CONFLICT (ID_usuario, token) DO NOTHING`,
       [ID_usuario, token]
     );
 
-    res.json({ message: "Token guardado correctamente" });
-  } catch (error) {
-    console.error("Error guardando token:", error);
+    res.json({ ok: true, message: "Token guardado" });
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ error: "Error guardando token" });
   }
 });
 
-// Enviar notificación de prueba a un usuario
-app.post("/test-notification", async (req: Request, res: Response) => {
+
+// Guardar notificación en BD
+app.post("/notificaciones/guardar-notificacion", async (req: Request, res: Response) => {
   try {
-    const { ID_usuario, token } = req.body;
-
-    if (!ID_usuario) {
-      return res.status(400).json({ error: "Falta ID_usuario" });
-    }
-
-     let tokens: string[] = [];
-    if (token) {
-      tokens = [token];
-    } else {
-      const result = await pool.query(
-        "SELECT token FROM user_tokens WHERE ID_usuario = $1",
-        [ID_usuario]
-      );
-      tokens = result.rows.map((row) => row.token);
-    }
-
-    if (tokens.length === 0) {
-      return res
-        .status(404)
-        .json({ error: "No hay tokens registrados para este usuario" });
-    }
-
-    // Enviar notificaciones
-    await Promise.all(
-      tokens.map((t) =>
-        axios.post("https://exp.host/--/api/v2/push/send", {
-          to: t,
-          sound: "default",
-          title: "🚀 Notificación de prueba",
-          body: "Este es un mensaje de prueba desde el backend",
-        })
-      )
+    const { id_usuario, titulo, cuerpo } = req.body;
+    await pool.query(
+      `INSERT INTO notificaciones (id_usuario, titulo, cuerpo) VALUES ($1, $2, $3)`,
+      [id_usuario, titulo, cuerpo]
     );
-
-    res.json({ success: true, message: "Notificación enviada" });
-  } catch (error) {
-    console.error("Error enviando notificación:", error);
-    res.status(500).json({ error: "Error enviando notificación" });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error guardando notificación" });
   }
 });
 
+// Función para enviar notificación push y guardar en BD
 
+async function enviarNotificacion(
+  tokens: string[],
+  titulo: string,
+  cuerpo: string,
+  usuarios: number[]
+) {
+  // Enviar push
+  const mensajes = tokens.map(token => ({
+    to: token,
+    sound: "default",
+    title: titulo,
+    body: cuerpo,
+  }));
 
+  const chunks = expo.chunkPushNotifications(mensajes);
+  for (const chunk of chunks) {
+    try {
+      const tickets = await expo.sendPushNotificationsAsync(chunk);
+      console.log("🎫 Tickets enviados:", tickets);
+    } catch (err) {
+      console.error("❌ Error enviando push:", err);
+    }
+  }
+
+  // Guardar en BD
+  for (const id_usuario of usuarios) {
+    try {
+      await pool.query(
+        `INSERT INTO notificaciones (id_usuario, titulo, cuerpo) VALUES ($1, $2, $3)`,
+        [id_usuario, titulo, cuerpo]
+      );
+    } catch (err) {
+      console.error("❌ Error guardando notificación en BD para usuario", id_usuario, err);
+    }
+  }
+}
 
 
 
@@ -482,50 +492,26 @@ app.post('/agregar-carrito', async (req: Request, res: Response) => {
 
     // Obtener datos del vendedor
     const datosVendedor = await pool.query(
-      `SELECT u.id_usuario, u.nombre
+      `SELECT u.ID_usuario, u.nombre
        FROM com_ventas cv
-       JOIN usuario u ON cv.id_usuario = u.id_usuario
-       WHERE cv.id_publicacion = $1`,
+       JOIN usuario u ON cv.ID_usuario = u.ID_usuario
+       WHERE cv.ID_publicacion = $1`,
       [ID_publicacion]
     );
 
     const vendedor = datosVendedor.rows[0];
     if (vendedor) {
-      console.log("👨‍💼 Vendedor encontrado:", vendedor);
-
-      // Obtener tokens
-      const tokens = await pool.query(
-        "SELECT token FROM user_tokens WHERE ID_usuario = $1",
-        [vendedor.id_usuario]
-      );
-
-      console.log("🔑 Tokens del vendedor:", tokens.rows);
-
-      if (tokens.rows.length > 0) {
-        const mensajes = tokens.rows.map((t: any) => ({
-          to: t.token,
-          sound: "default",
-          title: "¡Nuevo interés en tu artículo!",
-          body: "Un usuario agregó tu artículo al carrito 🚀",
-        }));
-
-        // Enviar notificaciones en chunks
-        const chunks = expo.chunkPushNotifications(mensajes);
-
-        for (const chunk of chunks) {
-          try {
-            const tickets = await expo.sendPushNotificationsAsync(chunk);
-            console.log("🎫 Respuesta de Expo:", tickets);
-          } catch (err) {
-            console.error("❌ Error al enviar notificación:", err);
-          }
-        }
-
-        console.log("📩 Notificación enviada al vendedor:", vendedor.nombre);
-      } else {
-        console.log("⚠️ El vendedor no tiene tokens registrados.");
+      const tokensRes = await pool.query("SELECT token FROM user_tokens WHERE ID_usuario = $1", [vendedor.ID_usuario]);
+      const tokens = tokensRes.rows.map(r => r.token);
+      if (tokens.length > 0) {
+        await enviarNotificacion(
+          tokens,
+          "¡Nuevo interés en tu artículo!",
+          "Un usuario agregó tu artículo al carrito 🚀",
+          [vendedor.ID_usuario]
+        );
       }
-    }
+    } 
 
     res.status(201).json({ mensaje: 'Artículo agregado al carrito correctamente' });
   } catch (error) {
@@ -799,16 +785,12 @@ app.delete('/marcar-vendido/:id', async (req, res) => {
     console.log('👥 Compradores encontrados:', compradoresRes.rows);
 
     // 2) obtener tokens de esos compradores
-    const compradoresIds = compradoresRes.rows.map((r: any) => r.id_usuario);
-    let tokensRows: { id_usuario: number; token: string }[] = [];
-    if (compradoresIds.length > 0) {
-      const tokensRes = await pool.query(
-        `SELECT ID_usuario, token FROM user_tokens WHERE ID_usuario = ANY($1::int[])`,
-        [compradoresIds]
-      );
-      tokensRows = tokensRes.rows;
-    }
-    console.log('🔑 Tokens encontrados para compradores:', tokensRows);
+   const compradoresIds = compradoresRes.rows.map(r => r.ID_usuario);
+    const tokensRes = await pool.query(
+      `SELECT ID_usuario, token FROM user_tokens WHERE ID_usuario = ANY($1::int[])`,
+      [compradoresIds]
+    );
+    const tokens = tokensRes.rows.map(r => r.token);
 
     // 3) borrar publicación y limpiar carrito dentro de transacción (consistencia)
     const client = await pool.connect();
@@ -827,63 +809,21 @@ app.delete('/marcar-vendido/:id', async (req, res) => {
     client.release();
 
     // 4) enviar notificaciones a cada token usando el mismo endpoint que ya FUNCIONA (axios -> exp.host)
-    if (tokensRows.length > 0) {
-      // enviar en paralelo (Promise.all), registrar respuestas
-      const results = await Promise.all(tokensRows.map(async (r) => {
-        try {
-          const payload = {
-            to: r.token,
-            sound: 'default',
-            title: 'Artículo ya no disponible ❌',
-            body: `El artículo "${nombreArticulo}" que tenías en tu carrito ya fue vendido.`,
-            data: { ID_publicacion: idPublicacion },
-          };
-          const resp = await axios.post('https://exp.host/--/api/v2/push/send', payload, { timeout: 10000 });
-          console.log(`📩 Enviado a ${r.id_usuario} token:${r.token} -> status ${resp.status}`);
-          return { ok: true, id_usuario: r.id_usuario, token: r.token, resp: resp.data };
-        } catch (err: any) {
-          console.error('❌ Error enviando notificación a token:', r.token, err?.response?.data ?? err.message);
-          // si la API devuelve que el dispositivo no está registrado, eliminamos token
-          const errData = err?.response?.data;
-          // Expo si falla con token devuelve error en cuerpo; si ves DeviceNotRegistered en resp -> eliminar
-          if (errData && typeof errData === 'object' && JSON.stringify(errData).includes('DeviceNotRegistered')) {
-            await pool.query('DELETE FROM user_tokens WHERE token = $1', [r.token]).catch(e => console.error('Error eliminando token inválido:', e));
-            console.log('🚮 Token eliminado por DeviceNotRegistered:', r.token);
-          }
-          return { ok: false, id_usuario: r.id_usuario, token: r.token, error: err?.message ?? err };
-        }
-      }));
-
-      console.log('✅ Resultados envío notificaciones:', results);
-
-      // 5) guardar notificaciones en BD
-      for (const comprador of compradoresRes.rows) {
-        try {
-          await pool.query(
-            `INSERT INTO notificaciones (id_usuario, titulo, cuerpo)
-             VALUES ($1, $2, $3)`,
-            [
-              comprador.id_usuario,
-              'Artículo ya no disponible ❌',
-              `El artículo "${nombreArticulo}" que tenías en tu carrito ya fue vendido.`,
-            ]
-          );
-        } catch (insertErr) {
-          console.error('❌ Error guardando notificación en BD para usuario', comprador.id_usuario, insertErr);
-        }
-      }
-    } else {
-      console.log('⚠️ No se encontraron tokens para notificar a compradores.');
+   if (tokens.length > 0) {
+      await enviarNotificacion(
+        tokens,
+        'Artículo ya no disponible ❌',
+        `El artículo "${nombreArticulo}" que tenías en tu carrito ya fue vendido.`,
+        compradoresIds
+      );
     }
 
-    return res.json({
-      message: 'Publicación eliminada, compradores notificados (si tenían token) y carrito limpiado',
-      deleted: publicacion,
-    });
-  } catch (error) {
-    console.error('❌ Error en /marcar-vendido:', error);
-    return res.status(500).json({ error: 'Error en el servidor' });
+    res.json({ message: 'Publicación eliminada y compradores notificados' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error en el servidor' });
   }
+   
 });
 
 
@@ -938,6 +878,7 @@ app.get("/publicaciones", async (req: Request, res: Response) => {
         cv.precio,
         cv.tipo_bicicleta,
         cv.tipo_componente,
+        cv.ID_usuario AS id_vendedor,
         u.nombre AS nombre_vendedor,
         u.telefono,
         u.foto,
@@ -954,7 +895,7 @@ app.get("/publicaciones", async (req: Request, res: Response) => {
       LEFT JOIN com_ventas_fotos cvf ON cv.ID_publicacion = cvf.ID_publicacion
       WHERE LOWER(cv.tipo_bicicleta) = LOWER($1)
         AND LOWER(cv.tipo_componente) = LOWER($2)
-      GROUP BY cv.ID_publicacion, u.nombre, u.telefono, u.foto, cv.nombre_Articulo, cv.descripcion, cv.precio, cv.tipo_bicicleta, cv.tipo_componente
+      GROUP BY cv.ID_publicacion, u.nombre, u.telefono, u.foto, cv.nombre_Articulo, cv.descripcion, cv.precio, cv.tipo_bicicleta,cv.ID_usuario, cv.tipo_componente
       ORDER BY cv.ID_publicacion DESC`,
       [tipo, componente]
     );
@@ -1019,6 +960,45 @@ app.put("/CambiarContrasena/:id", async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Error al cambiar la contraseña" });
+  }
+});
+
+
+
+
+// Endpoint para obtener los artículos relacionados al vendedor
+app.get('/PublicacionesRelacionadasVendedor/:id_usuario', async (req: Request, res: Response) => {
+  try {
+    const { id_usuario } = req.params;
+    if (!id_usuario || isNaN(Number(id_usuario))) {
+      return res.status(400).json({ error: 'ID de usuario inválido' });
+    }
+
+    const result = await pool.query(
+      `SELECT 
+        cv.ID_publicacion as id,
+        cv.nombre_Articulo,
+        cv.descripcion,
+        cv.precio,
+        cv.tipo_bicicleta,
+        u.nombre as nombre_vendedor,
+        u.telefono,
+        u.foto,
+        cv.ID_usuario as id_vendedor,
+        COALESCE(json_agg(f.url_foto) FILTER (WHERE f.url_foto IS NOT NULL), '[]') as fotos
+      FROM carrito c
+      JOIN com_ventas cv ON c.ID_publicacion = cv.ID_publicacion 
+      JOIN usuario u ON cv.ID_usuario = u.ID_usuario
+      LEFT JOIN com_ventas_fotos f ON cv.ID_publicacion = f.ID_publicacion
+      WHERE c.ID_usuario = $1
+      GROUP BY cv.ID_publicacion, u.nombre, u.telefono, u.foto, cv.ID_usuario`,
+      [id_usuario]
+    );
+
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error('Error al obtener publicaciones del vendedor:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
   }
 });
 
