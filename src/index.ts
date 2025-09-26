@@ -974,7 +974,7 @@ app.get('/PublicacionesRelacionadasVendedor/:ID_usuario', async (req, res) => {
       `
       SELECT 
         cv.ID_publicacion AS id,
-        cv.nombre_articulo,
+        cv.nombre_Articulo AS nombre_articulo,
         cv.descripcion,
         cv.precio,
         cv.tipo_bicicleta,
@@ -990,7 +990,7 @@ app.get('/PublicacionesRelacionadasVendedor/:ID_usuario', async (req, res) => {
       JOIN usuario u ON cv.ID_usuario = u.ID_usuario
       LEFT JOIN com_ventas_fotos cvf ON cv.ID_publicacion = cvf.ID_publicacion
       WHERE cv.ID_usuario = $1
-      GROUP BY cv.ID_publicacion, cv.nombre_articulo, cv.descripcion, cv.precio, cv.tipo_bicicleta,
+      GROUP BY cv.ID_publicacion, cv.nombre_Articulo, cv.descripcion, cv.precio, cv.tipo_bicicleta,
                u.nombre, u.telefono, u.foto, cv.ID_usuario
       ORDER BY cv.ID_publicacion DESC;
       `,
