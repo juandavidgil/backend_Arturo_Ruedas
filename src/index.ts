@@ -966,9 +966,6 @@ app.put("/CambiarContrasena/:id", async (req, res) => {
 
 
 
-// Endpoint para obtener los artículos relacionados al vendedor
-
-
 app.get('/PublicacionesRelacionadasVendedor/:ID_usuario', async (req, res) => {
   try {
     const { ID_usuario } = req.params;
@@ -977,10 +974,14 @@ app.get('/PublicacionesRelacionadasVendedor/:ID_usuario', async (req, res) => {
       `
       SELECT 
         cv.ID_publicacion AS id,
-        cv.nombre_Articulo as  nombre_articulo,
+        cv.nombre_articulo,
         cv.descripcion,
         cv.precio,
         cv.tipo_bicicleta,
+        u.nombre AS nombre_vendedor,
+        u.telefono,
+        u.foto,
+        cv.ID_usuario AS id_vendedor,
         COALESCE(
           json_agg(cvf.url_foto) FILTER (WHERE cvf.url_foto IS NOT NULL),
           '[]'
@@ -989,17 +990,18 @@ app.get('/PublicacionesRelacionadasVendedor/:ID_usuario', async (req, res) => {
       JOIN usuario u ON cv.ID_usuario = u.ID_usuario
       LEFT JOIN com_ventas_fotos cvf ON cv.ID_publicacion = cvf.ID_publicacion
       WHERE cv.ID_usuario = $1
-      GROUP BY cv.ID_publicacion, cv.nombre_Articulo, cv.descripcion, cv.precio, cv.tipo_bicicleta
+      GROUP BY cv.ID_publicacion, cv.nombre_articulo, cv.descripcion, cv.precio, cv.tipo_bicicleta,
+               u.nombre, u.telefono, u.foto, cv.ID_usuario
       ORDER BY cv.ID_publicacion DESC;
       `,
       [ID_usuario]
     );
 
-    console.log('Publicaciones obtenidas:', result.rows.length);
+    console.log('📦 Publicaciones obtenidas:', result.rows.length);
     res.status(200).json(result.rows);
 
   } catch (error) {
-    console.error('Error al obtener publicaciones:', error);
+    console.error('❌ Error al obtener publicaciones del vendedor:', error);
     res.status(500).json({ error: 'Error en el servidor' });
   }
 });
