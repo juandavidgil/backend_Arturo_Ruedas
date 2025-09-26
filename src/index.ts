@@ -660,9 +660,9 @@ app.get('/obtener-usuarios', async (req, res) => {
   }
 });
 // administrar publicaciones - administrador con múltiples fotos
-app.get('/obtener-publicaciones/:ID_usuario', async (req, res) => {
+app.get('/obtener-publicaciones/:id_usuario', async (req, res) => {
   try {
-    const { ID_usuario } = req.params;
+    const { id_usuario } = req.params;
 
     const result = await pool.query(`
       SELECT 
@@ -680,7 +680,7 @@ app.get('/obtener-publicaciones/:ID_usuario', async (req, res) => {
       WHERE cv.ID_usuario = $1
       GROUP BY cv.ID_publicacion, u.nombre, u.foto
       ORDER BY cv.ID_publicacion DESC;
-    `, [ID_usuario]);
+    `, [id_usuario]);
 
     console.log('Publicaciones obtenidas:', result.rows.length);
     res.status(200).json(result.rows);
