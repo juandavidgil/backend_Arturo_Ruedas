@@ -818,6 +818,7 @@ app.get('/obtener-publicaciones/:ID_usuario', async (req, res) => {
   });
 
   //eliminar publicacion - administrador
+  
 
   app.delete('/eliminar-publicaciones-admin/:id', async (req, res) => {
     try {
