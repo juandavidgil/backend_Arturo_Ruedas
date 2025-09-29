@@ -8,29 +8,51 @@ import { Expo } from "expo-server-sdk";
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from "resend";
 
-const admin = require('firebase-admin');
-
-// Configuración con variables de entorno
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      type: process.env.FIREBASE_TYPE,
-      project_id: process.env.FIREBASE_PROJECT_ID,
-      private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
-      private_key: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-      client_email: process.env.FIREBASE_CLIENT_EMAIL,
-      client_id: process.env.FIREBASE_CLIENT_ID,
-      auth_uri: process.env.FIREBASE_AUTH_URI,
-      token_uri: process.env.FIREBASE_TOKEN_URI,
-      auth_provider_x509_cert_url: process.env.FIREBASE_AUTH_PROVIDER_CERT_URL,
-      client_x509_cert_url: process.env.FIREBASE_CLIENT_CERT_URL
-    })
-  });
-}
-
-
 
 dotenv.config();
+const admin = require('firebase-admin');
+
+console.log('🔍 Debug Firebase Variables:');
+console.log('FIREBASE_PROJECT_ID:', process.env.FIREBASE_PROJECT_ID);
+console.log('FIREBASE_TYPE:', process.env.FIREBASE_TYPE);
+console.log('FIREBASE_CLIENT_EMAIL:', process.env.FIREBASE_CLIENT_EMAIL);
+console.log('FIREBASE_PRIVATE_KEY exists:', !!process.env.FIREBASE_PRIVATE_KEY);
+console.log('FIREBASE_PRIVATE_KEY length:', process.env.FIREBASE_PRIVATE_KEY?.length);
+
+// Solo inicializa si todas las variables están presentes
+const requiredVars = [
+  'FIREBASE_PROJECT_ID',
+  'FIREBASE_PRIVATE_KEY', 
+  'FIREBASE_CLIENT_EMAIL'
+];
+
+const missingVars = requiredVars.filter(varName => !process.env[varName]);
+
+if (missingVars.length > 0) {
+  console.error('❌ Variables de Firebase faltantes:', missingVars);
+  console.log('📝 Usando modo simulado para notificaciones');
+} else {
+  console.log('✅ Todas las variables de Firebase están presentes');
+  
+  // Inicializar Firebase Admin solo si las variables están presentes
+  if (!admin.apps.length) {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        type: process.env.FIREBASE_TYPE,
+        project_id: process.env.FIREBASE_PROJECT_ID,
+        private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
+        private_key: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+        client_email: process.env.FIREBASE_CLIENT_EMAIL,
+        client_id: process.env.FIREBASE_CLIENT_ID,
+        auth_uri: process.env.FIREBASE_AUTH_URI,
+        token_uri: process.env.FIREBASE_TOKEN_URI,
+        auth_provider_x509_cert_url: process.env.FIREBASE_AUTH_PROVIDER_CERT_URL,
+        client_x509_cert_url: process.env.FIREBASE_CLIENT_CERT_URL
+      })
+    });
+    console.log('✅ Firebase Admin inicializado correctamente');
+  }
+}
 export const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_KEY!
