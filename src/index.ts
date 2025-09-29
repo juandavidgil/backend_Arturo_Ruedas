@@ -7,6 +7,7 @@ import dotenv from "dotenv";
 import { Expo } from "expo-server-sdk";
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from "resend";
+import admin from 'firebase-admin';
 
 
 dotenv.config();
@@ -22,7 +23,6 @@ if (!admin.apps.length) {
 }
 
 
-import admin from 'firebase-admin';
 
 export const supabase = createClient(
   process.env.SUPABASE_URL!,
