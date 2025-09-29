@@ -10,49 +10,20 @@ import { Resend } from "resend";
 
 
 dotenv.config();
-const admin = require('firebase-admin');
 
-console.log('🔍 Debug Firebase Variables:');
-console.log('FIREBASE_PROJECT_ID:', process.env.FIREBASE_PROJECT_ID);
-console.log('FIREBASE_TYPE:', process.env.FIREBASE_TYPE);
-console.log('FIREBASE_CLIENT_EMAIL:', process.env.FIREBASE_CLIENT_EMAIL);
-console.log('FIREBASE_PRIVATE_KEY exists:', !!process.env.FIREBASE_PRIVATE_KEY);
-console.log('FIREBASE_PRIVATE_KEY length:', process.env.FIREBASE_PRIVATE_KEY?.length);
-
-// Solo inicializa si todas las variables están presentes
-const requiredVars = [
-  'FIREBASE_PROJECT_ID',
-  'FIREBASE_PRIVATE_KEY', 
-  'FIREBASE_CLIENT_EMAIL'
-];
-
-const missingVars = requiredVars.filter(varName => !process.env[varName]);
-
-if (missingVars.length > 0) {
-  console.error('❌ Variables de Firebase faltantes:', missingVars);
-  console.log('📝 Usando modo simulado para notificaciones');
-} else {
-  console.log('✅ Todas las variables de Firebase están presentes');
-  
-  // Inicializar Firebase Admin solo si las variables están presentes
-  if (!admin.apps.length) {
-    admin.initializeApp({
-      credential: admin.credential.cert({
-        type: process.env.FIREBASE_TYPE,
-        project_id: process.env.FIREBASE_PROJECT_ID,
-        private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
-        private_key: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-        client_email: process.env.FIREBASE_CLIENT_EMAIL,
-        client_id: process.env.FIREBASE_CLIENT_ID,
-        auth_uri: process.env.FIREBASE_AUTH_URI,
-        token_uri: process.env.FIREBASE_TOKEN_URI,
-        auth_provider_x509_cert_url: process.env.FIREBASE_AUTH_PROVIDER_CERT_URL,
-        client_x509_cert_url: process.env.FIREBASE_CLIENT_CERT_URL
-      })
-    });
-    console.log('✅ Firebase Admin inicializado correctamente');
-  }
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    }),
+  });
 }
+
+
+import admin from 'firebase-admin';
+
 export const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_KEY!
@@ -412,116 +383,193 @@ app.post('/publicar_articulo', async (req: Request, res: Response) => {
 });
 
 
-
-app.post("/guardar-token", async (req, res) => {
+async function guardarNotificacionBD(
+  ID_usuario: number, 
+  titulo: string, 
+  cuerpo: string, 
+  data?: any
+) {
   try {
-    console.log("=== 📱 GUARDAR TOKEN INICIADO ===");
-    console.log("Headers:", req.headers);
-    console.log("Body completo:", req.body);
-    
-    const { ID_usuario, token } = req.body;
-    console.log("ID_usuario:", ID_usuario);
-    console.log("Token:", token ? token.substring(0, 20) + "..." : "UNDEFINED");
+    await pool.query(
+      `INSERT INTO notificaciones (ID_usuario, titulo, cuerpo, data) 
+       VALUES ($1, $2, $3, $4)`,
+      [ID_usuario, titulo, cuerpo, data ? JSON.stringify(data) : null]
+    );
+    console.log(`✅ Notificación guardada en BD para usuario ${ID_usuario}`);
+  } catch (error) {
+    console.error('❌ Error guardando notificación en BD:', error);
+  }
+}
 
-    if (!ID_usuario || !token) {
-      console.log("❌ Faltan datos");
-      return res.status(400).json({ error: "Faltan ID_usuario o token" });
+// Función para enviar notificación FCM y guardar en BD
+async function enviarNotificacionFCM(
+  tokens: string[], 
+  titulo: string, 
+  cuerpo: string, 
+  usuariosIds: number[],
+  data?: any
+) {
+  try {
+    if (tokens.length === 0) {
+      console.log('ℹ️ No hay tokens para enviar notificación');
+      return;
     }
 
-    const result = await pool.query(
-      `INSERT INTO user_tokens (ID_usuario, token) VALUES ($1, $2) ON CONFLICT (ID_usuario, token) DO NOTHING`,
+    const message = {
+      notification: {
+        title: titulo,
+        body: cuerpo
+      },
+      data: data || {},
+      tokens: tokens
+    };
+
+    // Enviar notificación FCM
+    const response = await admin.messaging().sendEachForMulticast(message);
+    console.log(`✅ Notificación FCM enviada. Éxitos: ${response.successCount}, Fallos: ${response.failureCount}`);
+
+    // Guardar notificación en BD para cada usuario
+    for (const usuarioId of usuariosIds) {
+      await guardarNotificacionBD(usuarioId, titulo, cuerpo, data);
+    }
+
+    return response;
+
+  } catch (error: any) {
+    console.error('❌ Error enviando notificación FCM:', error);
+    throw error;
+  }
+}
+
+// Endpoint para guardar tokens FCM
+app.post('/guardar-token', async (req: Request, res: Response) => {
+  try {
+    const { ID_usuario, token } = req.body;
+
+    if (!ID_usuario || !token) {
+      return res.status(400).json({ error: 'ID_usuario y token son requeridos' });
+    }
+
+    // Verificar si el usuario existe
+    const usuarioExiste = await pool.query(
+      'SELECT 1 FROM usuario WHERE ID_usuario = $1',
+      [ID_usuario]
+    );
+
+    if (usuarioExiste.rowCount === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    // Insertar o actualizar token
+    await pool.query(
+      `INSERT INTO user_tokens (ID_usuario, token) 
+       VALUES ($1, $2) 
+       ON CONFLICT (token) 
+       DO UPDATE SET ID_usuario = $1, fecha_registro = CURRENT_TIMESTAMP`,
       [ID_usuario, token]
     );
 
-    console.log("✅ Token guardado. Result:", result.rowCount);
-    console.log("=== ✅ GUARDAR TOKEN FINALIZADO ===");
-    
-    res.json({ ok: true, message: "Token guardado", rows: result.rowCount });
-  } catch (err) {
-    console.error("❌ ERROR en guardar-token:", err);
-    res.status(500).json({ error: "Error guardando token: " });
+    console.log(`✅ Token guardado para usuario ${ID_usuario}`);
+    res.json({ mensaje: 'Token guardado correctamente' });
+
+  } catch (error: any) {
+    console.error('❌ Error guardando token:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
   }
 });
-// Guardar notificación en BD
-app.post("/notificaciones/guardar-notificacion", async (req: Request, res: Response) => {
+
+// Endpoint para obtener notificaciones del usuario
+app.get('/notificaciones/:id_usuario', async (req: Request, res: Response) => {
   try {
-    const { id_usuario, titulo, cuerpo } = req.body;
-    await pool.query(
-      `INSERT INTO notificaciones (id_usuario, titulo, cuerpo) VALUES ($1, $2, $3)`,
-      [id_usuario, titulo, cuerpo]
+    const { id_usuario } = req.params;
+
+    const result = await pool.query(
+      `SELECT 
+        ID_notificacion,
+        titulo,
+        cuerpo,
+        leida,
+        fecha_envio,
+        data
+       FROM notificaciones 
+       WHERE ID_usuario = $1 
+       ORDER BY fecha_envio DESC 
+       LIMIT 50`,
+      [id_usuario]
     );
-    res.json({ ok: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Error guardando notificación" });
+
+    res.json(result.rows);
+
+  } catch (error: any) {
+    console.error('❌ Error obteniendo notificaciones:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
   }
 });
 
-// Interfaces para tipos
-interface NotificationResult {
-  success: boolean;
-  token: string;
-  response?: any;
-  error?: any;
-}
-
-// Función para enviar notificación push FCM y guardar en BD
-async function enviarNotificacionFCM(
-  tokens: string[],
-  titulo: string,
-  cuerpo: string,
-  usuarios: number[]
-): Promise<void> {
+// Endpoint para marcar notificación como leída
+app.put('/notificaciones/:id/leida', async (req: Request, res: Response) => {
   try {
-    // Enviar notificaciones FCM
-    const messages = tokens.map(token => ({
-      notification: {
-        title: titulo,
-        body: cuerpo,
-        sound: "default" as const
-      },
-      data: {
-        tipo: 'carrito',
-        timestamp: new Date().toISOString()
-      },
-      token: token
-    }));
+    const { id } = req.params;
 
-    // Enviar cada mensaje individualmente
-    const sendPromises = messages.map(async (message): Promise<NotificationResult> => {
-      try {
-        const response = await admin.messaging().send(message);
-        console.log("✅ Notificación FCM enviada:", response);
-        return { success: true, token: message.token, response };
-      } catch (error: any) {
-        console.error("❌ Error enviando FCM a token:", message.token, error);
-        return { success: false, token: message.token, error };
-      }
-    });
+    await pool.query(
+      'UPDATE notificaciones SET leida = true WHERE ID_notificacion = $1',
+      [id]
+    );
 
-    const results: NotificationResult[] = await Promise.all(sendPromises);
-    console.log("📊 Resultados FCM:", results);
+    res.json({ mensaje: 'Notificación marcada como leída' });
 
-    // Guardar en BD para cada usuario
-    const savePromises = usuarios.map(async (id_usuario: number) => {
-      try {
-        await pool.query(
-          `INSERT INTO notificaciones (id_usuario, titulo, cuerpo) VALUES ($1, $2, $3)`,
-          [id_usuario, titulo, cuerpo]
-        );
-      } catch (err: any) {
-        console.error("❌ Error guardando notificación en BD para usuario", id_usuario, err);
-      }
-    });
-
-    await Promise.all(savePromises);
-    
-  } catch (err: any) {
-    console.error("❌ Error general en enviarNotificacionFCM:", err);
+  } catch (error: any) {
+    console.error('❌ Error marcando notificación como leída:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
   }
-}
+});
 
-// Ruta para agregar al carrito - Actualizada con FCM
+// Endpoint para probar notificaciones FCM
+app.post("/test-notification-fcm", async (req: Request, res: Response) => {
+  try {
+    const { ID_usuario, token } = req.body;
+
+    if (!token || !ID_usuario) {
+      return res.status(400).json({ error: "Token FCM y ID_usuario requeridos" });
+    }
+
+    const titulo = "✅ Prueba Exitosa";
+    const cuerpo = "¡Las notificaciones FCM están funcionando! 🎉";
+    const data = {
+      screen: 'notificaciones',
+      type: 'test',
+      timestamp: new Date().toISOString()
+    };
+
+    // Enviar mediante FCM
+    const message = {
+      notification: { title: titulo, body: cuerpo },
+      data: data,
+      token: token
+    };
+
+    const response = await admin.messaging().send(message);
+    console.log('✅ Notificación FCM de prueba enviada:', response);
+
+    // Guardar en BD
+    await guardarNotificacionBD(ID_usuario, titulo, cuerpo, data);
+
+    res.json({ 
+      ok: true, 
+      message: "Notificación FCM enviada y guardada", 
+      response 
+    });
+    
+  } catch (error: any) {
+    console.error('❌ Error enviando notificación FCM de prueba:', error);
+    res.status(500).json({ 
+      error: "Error enviando notificación FCM",
+      details: error.message 
+    });
+  }
+});
+
+// Ruta para agregar al carrito - ACTUALIZADA
 app.post('/agregar-carrito', async (req: Request, res: Response) => {
   try {
     const { ID_usuario, ID_publicacion } = req.body;
@@ -579,7 +627,12 @@ app.post('/agregar-carrito', async (req: Request, res: Response) => {
           tokens,
           "¡Nuevo interés en tu artículo! 🛒",
           `Alguien agregó tu artículo al carrito. Revisa tus ventas.`,
-          [vendedor.ID_usuario]
+          [vendedor.ID_usuario],
+          { 
+            tipo: 'interes_carrito',
+            ID_publicacion: ID_publicacion.toString(),
+            timestamp: new Date().toISOString()
+          }
         );
       } else {
         console.log(`ℹ️ Vendedor ${vendedor.nombre} no tiene tokens FCM registrados`);
@@ -592,56 +645,6 @@ app.post('/agregar-carrito', async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Error en el servidor' });
   }
 });
-
-// Ruta para probar notificaciones FCM
-app.post("/test-notification-fcm", async (req: Request, res: Response) => {
-  try {
-    const { ID_usuario, token } = req.body;
-
-    if (!token) {
-      return res.status(400).json({ error: "Token FCM requerido" });
-    }
-
-    const message = {
-      notification: {
-        title: "✅ Prueba Exitosa",
-        body: "¡Las notificaciones FCM están funcionando! 🎉"
-      },
-      data: {
-        screen: 'notificaciones',
-        type: 'test',
-        timestamp: new Date().toISOString()
-      },
-      token: token
-    };
-
-    // Enviar mediante FCM
-    const response = await admin.messaging().send(message);
-    console.log('✅ Notificación FCM de prueba enviada:', response);
-
-    // Guardar en BD
-    if (ID_usuario) {
-      await pool.query(
-        `INSERT INTO notificaciones (id_usuario, titulo, cuerpo) VALUES ($1, $2, $3)`,
-        [ID_usuario, "Prueba de notificación", "Notificación de prueba FCM enviada correctamente"]
-      );
-    }
-
-    res.json({ 
-      ok: true, 
-      message: "Notificación FCM enviada", 
-      response 
-    });
-    
-  } catch (error: any) {
-    console.error('❌ Error enviando notificación FCM de prueba:', error);
-    res.status(500).json({ 
-      error: "Error enviando notificación FCM",
-      details: error.message 
-    });
-  }
-});
-
 
 // Endpoint para obtener los artículos del carrito de un usuario
 app.get('/carrito/:id_usuario', async (req: Request, res: Response) => {
@@ -884,8 +887,6 @@ app.get('/obtener-publicaciones-usuario-logueado/:ID_usuario', async (req, res) 
 });
 
   
-
-// Marcar como vendido - Actualizado con FCM
 app.delete('/marcar-vendido/:id', async (req: Request, res: Response) => {
   const idPublicacion = Number(req.params.id);
   
@@ -961,7 +962,13 @@ app.delete('/marcar-vendido/:id', async (req: Request, res: Response) => {
         tokens,
         'Artículo ya no disponible ❌',
         `El artículo "${nombreArticulo}" que tenías en tu carrito ya fue vendido.`,
-        compradoresConTokens
+        compradoresConTokens,
+        {
+          tipo: 'articulo_vendido',
+          ID_publicacion: idPublicacion.toString(),
+          nombre_articulo: nombreArticulo,
+          timestamp: new Date().toISOString()
+        }
       );
     } else {
       console.log('ℹ️ No hay tokens FCM para enviar notificaciones');
@@ -981,7 +988,6 @@ app.delete('/marcar-vendido/:id', async (req: Request, res: Response) => {
     });
   }
 });
-
   
   
  // Ruta para el chat
