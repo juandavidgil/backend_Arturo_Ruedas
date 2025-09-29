@@ -382,7 +382,8 @@ app.post('/publicar_articulo', async (req: Request, res: Response) => {
   }
 });
 
-
+////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Función para guardar notificación en BD
 async function guardarNotificacionBD(
   ID_usuario: number, 
   titulo: string, 
@@ -390,14 +391,20 @@ async function guardarNotificacionBD(
   data?: any
 ) {
   try {
-    await pool.query(
+    console.log(`💾 Guardando notificación para usuario ${ID_usuario}`);
+    
+    const result = await pool.query(
       `INSERT INTO notificaciones (ID_usuario, titulo, cuerpo, data) 
-       VALUES ($1, $2, $3, $4)`,
+       VALUES ($1, $2, $3, $4) 
+       RETURNING ID_notificacion`,
       [ID_usuario, titulo, cuerpo, data ? JSON.stringify(data) : null]
     );
-    console.log(`✅ Notificación guardada en BD para usuario ${ID_usuario}`);
-  } catch (error) {
+    
+    console.log(`✅ Notificación guardada con ID: ${result.rows[0].id_notificacion}`);
+    return result.rows[0];
+  } catch (error: any) {
     console.error('❌ Error guardando notificación en BD:', error);
+    throw error;
   }
 }
 
@@ -415,6 +422,8 @@ async function enviarNotificacionFCM(
       return;
     }
 
+    console.log(`📨 Enviando notificación FCM a ${tokens.length} tokens`);
+
     const message = {
       notification: {
         title: titulo,
@@ -430,7 +439,11 @@ async function enviarNotificacionFCM(
 
     // Guardar notificación en BD para cada usuario
     for (const usuarioId of usuariosIds) {
-      await guardarNotificacionBD(usuarioId, titulo, cuerpo, data);
+      try {
+        await guardarNotificacionBD(usuarioId, titulo, cuerpo, data);
+      } catch (error) {
+        console.error(`⚠️ Error guardando notificación para usuario ${usuarioId}:`, error);
+      }
     }
 
     return response;
@@ -441,7 +454,9 @@ async function enviarNotificacionFCM(
   }
 }
 
-// Endpoint para guardar tokens FCM
+// ==================== ENDPOINTS ====================
+
+// 📍 ENDPOINT: Guardar token FCM
 app.post('/guardar-token', async (req: Request, res: Response) => {
   try {
     const { ID_usuario, token } = req.body;
@@ -449,6 +464,8 @@ app.post('/guardar-token', async (req: Request, res: Response) => {
     if (!ID_usuario || !token) {
       return res.status(400).json({ error: 'ID_usuario y token son requeridos' });
     }
+
+    console.log(`🔑 Guardando token para usuario ${ID_usuario}`);
 
     // Verificar si el usuario existe
     const usuarioExiste = await pool.query(
@@ -478,10 +495,12 @@ app.post('/guardar-token', async (req: Request, res: Response) => {
   }
 });
 
-// Endpoint para obtener notificaciones del usuario
+// 📍 ENDPOINT: Obtener notificaciones del usuario
 app.get('/notificaciones/:id_usuario', async (req: Request, res: Response) => {
   try {
     const { id_usuario } = req.params;
+
+    console.log(`📋 Solicitando notificaciones para usuario ${id_usuario}`);
 
     const result = await pool.query(
       `SELECT 
@@ -498,6 +517,7 @@ app.get('/notificaciones/:id_usuario', async (req: Request, res: Response) => {
       [id_usuario]
     );
 
+    console.log(`✅ ${result.rows.length} notificaciones encontradas`);
     res.json(result.rows);
 
   } catch (error: any) {
@@ -506,17 +526,24 @@ app.get('/notificaciones/:id_usuario', async (req: Request, res: Response) => {
   }
 });
 
-// Endpoint para marcar notificación como leída
+// 📍 ENDPOINT: Marcar notificación como leída
 app.put('/notificaciones/:id/leida', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    await pool.query(
-      'UPDATE notificaciones SET leida = true WHERE ID_notificacion = $1',
+    console.log(`📌 Marcando notificación ${id} como leída`);
+
+    const result = await pool.query(
+      'UPDATE notificaciones SET leida = true WHERE ID_notificacion = $1 RETURNING *',
       [id]
     );
 
-    res.json({ mensaje: 'Notificación marcada como leída' });
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Notificación no encontrada' });
+    }
+
+    console.log(`✅ Notificación ${id} marcada como leída`);
+    res.json({ mensaje: 'Notificación marcada como leída', notificacion: result.rows[0] });
 
   } catch (error: any) {
     console.error('❌ Error marcando notificación como leída:', error);
@@ -524,7 +551,7 @@ app.put('/notificaciones/:id/leida', async (req: Request, res: Response) => {
   }
 });
 
-// Endpoint para probar notificaciones FCM
+// 📍 ENDPOINT: Probar notificaciones FCM
 app.post("/test-notification-fcm", async (req: Request, res: Response) => {
   try {
     const { ID_usuario, token } = req.body;
@@ -532,6 +559,8 @@ app.post("/test-notification-fcm", async (req: Request, res: Response) => {
     if (!token || !ID_usuario) {
       return res.status(400).json({ error: "Token FCM y ID_usuario requeridos" });
     }
+
+    console.log(`🧪 Enviando notificación de prueba a usuario ${ID_usuario}`);
 
     const titulo = "✅ Prueba Exitosa";
     const cuerpo = "¡Las notificaciones FCM están funcionando! 🎉";
@@ -549,7 +578,7 @@ app.post("/test-notification-fcm", async (req: Request, res: Response) => {
     };
 
     const response = await admin.messaging().send(message);
-    console.log('✅ Notificación FCM de prueba enviada:', response);
+    console.log('✅ Notificación FCM de prueba enviada');
 
     // Guardar en BD
     await guardarNotificacionBD(ID_usuario, titulo, cuerpo, data);
@@ -569,12 +598,11 @@ app.post("/test-notification-fcm", async (req: Request, res: Response) => {
   }
 });
 
-// Ruta para agregar al carrito - ACTUALIZADA
+// 📍 ENDPOINT: Agregar al carrito (con notificación al vendedor)
 app.post('/agregar-carrito', async (req: Request, res: Response) => {
   try {
     const { ID_usuario, ID_publicacion } = req.body;
-    console.log('ID_usuario recibido:', ID_usuario);
-    console.log('ID_publicacion recibido:', ID_publicacion);
+    console.log('🛒 Agregando al carrito - Usuario:', ID_usuario, 'Publicación:', ID_publicacion);
 
     if (!ID_usuario || !ID_publicacion) {
       return res.status(400).json({ error: 'IDs de usuario y publicación son obligatorios' });
@@ -603,7 +631,7 @@ app.post('/agregar-carrito', async (req: Request, res: Response) => {
 
     // Obtener datos del vendedor
     const datosVendedor = await pool.query(
-      `SELECT u.ID_usuario, u.nombre
+      `SELECT u.ID_usuario, u.nombre, cv.nombre_articulo
        FROM com_ventas cv
        JOIN usuario u ON cv.ID_usuario = u.ID_usuario
        WHERE cv.ID_publicacion = $1`,
@@ -621,16 +649,17 @@ app.post('/agregar-carrito', async (req: Request, res: Response) => {
       const tokens: string[] = tokensRes.rows.map((r: any) => r.token);
       
       if (tokens.length > 0) {
-        console.log(`📨 Enviando notificación a vendedor ${vendedor.nombre} con ${tokens.length} tokens`);
+        console.log(`📨 Enviando notificación a vendedor ${vendedor.nombre}`);
         
         await enviarNotificacionFCM(
           tokens,
           "¡Nuevo interés en tu artículo! 🛒",
-          `Alguien agregó tu artículo al carrito. Revisa tus ventas.`,
+          `Alguien agregó "${vendedor.nombre_articulo}" al carrito. Revisa tus ventas.`,
           [vendedor.ID_usuario],
           { 
             tipo: 'interes_carrito',
             ID_publicacion: ID_publicacion.toString(),
+            nombre_articulo: vendedor.nombre_articulo,
             timestamp: new Date().toISOString()
           }
         );
@@ -641,10 +670,11 @@ app.post('/agregar-carrito', async (req: Request, res: Response) => {
 
     res.status(201).json({ mensaje: 'Artículo agregado al carrito correctamente' });
   } catch (error: any) {
-    console.error('Error al agregar al carrito:', error);
+    console.error('❌ Error al agregar al carrito:', error);
     res.status(500).json({ error: 'Error en el servidor' });
   }
 });
+
 
 // Endpoint para obtener los artículos del carrito de un usuario
 app.get('/carrito/:id_usuario', async (req: Request, res: Response) => {
@@ -886,11 +916,13 @@ app.get('/obtener-publicaciones-usuario-logueado/:ID_usuario', async (req, res) 
   }
 });
 
-  
+// 📍 ENDPOINT: Marcar como vendido (con notificación a compradores)
 app.delete('/marcar-vendido/:id', async (req: Request, res: Response) => {
   const idPublicacion = Number(req.params.id);
   
   try {
+    console.log(`💰 Marcando como vendido publicación ${idPublicacion}`);
+
     // 1) Obtener datos de la publicación
     const pubRes = await pool.query('SELECT * FROM com_ventas WHERE ID_publicacion = $1', [idPublicacion]);
     if (pubRes.rowCount === 0) return res.status(404).json({ error: 'Publicación no encontrada' });
@@ -906,7 +938,7 @@ app.delete('/marcar-vendido/:id', async (req: Request, res: Response) => {
        WHERE c.ID_publicacion = $1`,
       [idPublicacion]
     );
-    console.log('👥 Compradores encontrados:', compradoresRes.rows);
+    console.log(`👥 ${compradoresRes.rows.length} compradores encontrados`);
 
     // 3) Obtener tokens FCM de esos compradores
     const compradoresIds = compradoresRes.rows.map((r: any) => r.id_usuario);
@@ -923,28 +955,26 @@ app.delete('/marcar-vendido/:id', async (req: Request, res: Response) => {
       tokens = tokensRes.rows.map((r: any) => r.token);
       compradoresConTokens = tokensRes.rows.map((r: any) => r.ID_usuario);
       
-      console.log(`📨 Tokens FCM encontrados: ${tokens.length} de ${compradoresIds.length} compradores`);
+      console.log(`📨 ${tokens.length} tokens FCM encontrados`);
     }
 
-    // 4) Borrar publicación y limpiar carrito dentro de transacción
+    // 4) Borrar publicación y limpiar carrito
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       
-      // Eliminar publicación
-      const delPub = await client.query(
-        'DELETE FROM com_ventas WHERE ID_publicacion = $1 RETURNING *', 
+      await client.query(
+        'DELETE FROM com_ventas WHERE ID_publicacion = $1', 
         [idPublicacion]
       );
       
-      // Limpiar carrito de todos los usuarios
       await client.query(
         'DELETE FROM carrito WHERE ID_publicacion = $1', 
         [idPublicacion]
       );
       
       await client.query('COMMIT');
-      console.log('🗑️ Publicación y carrito eliminados en BD');
+      console.log('🗑️ Publicación y carrito eliminados');
       
     } catch (txErr: any) {
       await client.query('ROLLBACK');
@@ -956,7 +986,7 @@ app.delete('/marcar-vendido/:id', async (req: Request, res: Response) => {
 
     // 5) Enviar notificaciones FCM a los compradores
     if (tokens.length > 0) {
-      console.log(`🚀 Enviando notificaciones FCM a ${tokens.length} compradores`);
+      console.log(`🚀 Enviando notificaciones a ${tokens.length} compradores`);
       
       await enviarNotificacionFCM(
         tokens,
@@ -988,8 +1018,6 @@ app.delete('/marcar-vendido/:id', async (req: Request, res: Response) => {
     });
   }
 });
-  
-  
  // Ruta para el chat
 app.post("/chat", async (req: Request, res: Response) => {
   const { message } = req.body;
