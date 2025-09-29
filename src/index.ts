@@ -412,42 +412,6 @@ app.post('/publicar_articulo', async (req: Request, res: Response) => {
 });
 
 
-app.post("/test-notification-fcm", async (req, res) => {
-  try {
-    const { ID_usuario, token } = req.body;
-
-    if (!token) {
-      return res.status(400).json({ error: "Token FCM requerido" });
-    }
-
-    const message = {
-      notification: {
-        title: "✅ Prueba Exitosa",
-        body: "¡Las notificaciones FCM están funcionando! 🎉"
-      },
-      data: {
-        screen: 'notificaciones',
-        type: 'test'
-      },
-      token: token
-    };
-
-    // Enviar mediante FCM
-    const response = await admin.messaging().send(message);
-    console.log('✅ Notificación FCM enviada:', response);
-
-    // Guardar en BD
-    await pool.query(
-      `INSERT INTO notificaciones (id_usuario, titulo, cuerpo) VALUES ($1, $2, $3)`,
-      [ID_usuario, "Prueba de notificación", "Notificación de prueba enviada correctamente"]
-    );
-
-    res.json({ ok: true, message: "Notificación enviada", response });
-  } catch (error) {
-    console.error('❌ Error enviando notificación FCM:', error);
-    res.status(500).json({ error: "Error enviando notificación FCM" });
-  }
-});
 
 // Actualizar guardar-token para FCM
 app.post("/guardar-token", async (req, res) => {
@@ -597,7 +561,7 @@ app.post('/agregar-carrito', async (req: Request, res: Response) => {
     if (vendedor) {
       // Obtener tokens FCM del vendedor
       const tokensRes = await pool.query(
-        "SELECT token FROM user_tokens WHERE ID_usuario = $1 AND tipo = 'fcm'", 
+        "SELECT token FROM user_tokens WHERE ID_usuario = $1", 
         [vendedor.ID_usuario]
       );
       
@@ -945,7 +909,7 @@ app.delete('/marcar-vendido/:id', async (req: Request, res: Response) => {
     
     if (compradoresIds.length > 0) {
       const tokensRes = await pool.query(
-        `SELECT ID_usuario, token FROM user_tokens WHERE ID_usuario = ANY($1::int[]) AND tipo = 'fcm'`,
+        `SELECT ID_usuario, token FROM user_tokens WHERE ID_usuario = ANY($1::int[])`,
         [compradoresIds]
       );
       
