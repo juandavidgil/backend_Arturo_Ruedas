@@ -413,29 +413,35 @@ app.post('/publicar_articulo', async (req: Request, res: Response) => {
 
 
 
-// Actualizar guardar-token para FCM
 app.post("/guardar-token", async (req, res) => {
   try {
+    console.log("=== 📱 GUARDAR TOKEN INICIADO ===");
+    console.log("Headers:", req.headers);
+    console.log("Body completo:", req.body);
+    
     const { ID_usuario, token } = req.body;
+    console.log("ID_usuario:", ID_usuario);
+    console.log("Token:", token ? token.substring(0, 20) + "..." : "UNDEFINED");
 
     if (!ID_usuario || !token) {
+      console.log("❌ Faltan datos");
       return res.status(400).json({ error: "Faltan ID_usuario o token" });
     }
 
-    await pool.query(
-      `INSERT INTO user_tokens (ID_usuario, token)
-       VALUES ($1, $2, $3)`,
+    const result = await pool.query(
+      `INSERT INTO user_tokens (ID_usuario, token) VALUES ($1, $2) ON CONFLICT (ID_usuario, token) DO NOTHING`,
       [ID_usuario, token]
     );
 
-    res.json({ ok: true, message: "Token FCM guardado" });
+    console.log("✅ Token guardado. Result:", result.rowCount);
+    console.log("=== ✅ GUARDAR TOKEN FINALIZADO ===");
+    
+    res.json({ ok: true, message: "Token guardado", rows: result.rowCount });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Error guardando token" });
+    console.error("❌ ERROR en guardar-token:", err);
+    res.status(500).json({ error: "Error guardando token: " });
   }
 });
-
-
 // Guardar notificación en BD
 app.post("/notificaciones/guardar-notificacion", async (req: Request, res: Response) => {
   try {
@@ -818,7 +824,7 @@ app.get('/obtener-publicaciones/:ID_usuario', async (req, res) => {
   });
 
   //eliminar publicacion - administrador
-  
+
 
   app.delete('/eliminar-publicaciones-admin/:id', async (req, res) => {
     try {
