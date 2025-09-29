@@ -416,17 +416,16 @@ app.post('/publicar_articulo', async (req: Request, res: Response) => {
 // Actualizar guardar-token para FCM
 app.post("/guardar-token", async (req, res) => {
   try {
-    const { ID_usuario, token, tipo = 'fcm' } = req.body;
+    const { ID_usuario, token } = req.body;
 
     if (!ID_usuario || !token) {
       return res.status(400).json({ error: "Faltan ID_usuario o token" });
     }
 
     await pool.query(
-      `INSERT INTO user_tokens (ID_usuario, token, tipo)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (ID_usuario, token) DO UPDATE SET tipo = $3`,
-      [ID_usuario, token, tipo]
+      `INSERT INTO user_tokens (ID_usuario, token)
+       VALUES ($1, $2, $3)`,
+      [ID_usuario, token]
     );
 
     res.json({ ok: true, message: "Token FCM guardado" });
