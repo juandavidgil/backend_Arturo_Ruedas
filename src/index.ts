@@ -386,11 +386,7 @@ app.post('/publicar_articulo', async (req: Request, res: Response) => {
 
 
 // ==================== ENDPOINTS DE NOTIFICACIONES ====================
-
-
-
-
-// 📍 ENDPOINT: Obtener notificaciones del usuario
+// 📍 ENDPOINT: Obtener notificaciones del usuario (CORREGIDO)
 app.get('/notificaciones/:id_usuario', async (req, res) => {
   try {
     const { id_usuario } = req.params;
@@ -399,7 +395,7 @@ app.get('/notificaciones/:id_usuario', async (req, res) => {
 
     const result = await pool.query(
       `SELECT 
-        ID_notificacion,
+        ID_notificacion as id_notificacion,  -- ALIAS para que coincida con el frontend
         titulo,
         cuerpo,
         leida,
@@ -412,7 +408,17 @@ app.get('/notificaciones/:id_usuario', async (req, res) => {
       [id_usuario]
     );
 
-    console.log(`✅ ${result.rows.length} notificaciones encontradas`);
+    console.log(`✅ ${result.rows.length} notificaciones encontradas para usuario ${id_usuario}`);
+    
+    // Log para debugging
+    if (result.rows.length > 0) {
+      console.log('📝 Ejemplo de notificación:', {
+        id: result.rows[0].id_notificacion,
+        titulo: result.rows[0].titulo,
+        leida: result.rows[0].leida
+      });
+    }
+
     res.json(result.rows);
 
   } catch (error) {
@@ -421,7 +427,7 @@ app.get('/notificaciones/:id_usuario', async (req, res) => {
   }
 });
 
-// 📍 ENDPOINT: Marcar notificación como leída
+// 📍 ENDPOINT: Marcar notificación como leída (CORREGIDO)
 app.put('/notificaciones/:id/leida', async (req, res) => {
   try {
     const { id } = req.params;
@@ -429,16 +435,22 @@ app.put('/notificaciones/:id/leida', async (req, res) => {
     console.log(`📌 Marcando notificación ${id} como leída`);
 
     const result = await pool.query(
-      'UPDATE notificaciones SET leida = true WHERE ID_notificacion = $1 RETURNING *',
+      `UPDATE notificaciones SET leida = true 
+       WHERE ID_notificacion = $1 
+       RETURNING ID_notificacion as id_notificacion, titulo, cuerpo, leida, fecha_envio, data`,
       [id]
     );
 
     if (result.rowCount === 0) {
+      console.log(`❌ Notificación ${id} no encontrada`);
       return res.status(404).json({ error: 'Notificación no encontrada' });
     }
 
     console.log(`✅ Notificación ${id} marcada como leída`);
-    res.json({ mensaje: 'Notificación marcada como leída', notificacion: result.rows[0] });
+    res.json({ 
+      mensaje: 'Notificación marcada como leída', 
+      notificacion: result.rows[0] 
+    });
 
   } catch (error) {
     console.error('❌ Error marcando notificación como leída:', error);
@@ -446,24 +458,39 @@ app.put('/notificaciones/:id/leida', async (req, res) => {
   }
 });
 
-// Función para guardar notificación en BD
+
+
+
+
+// Función para guardar notificación en BD (MEJORADA)
 async function guardarNotificacionBD(ID_usuario: number, titulo: string, cuerpo: string, data: any = null) {
   try {
+    console.log(`💾 Guardando notificación para usuario ${ID_usuario}:`, { titulo, cuerpo });
+    
     const result = await pool.query(
       `INSERT INTO notificaciones (ID_usuario, titulo, cuerpo, data) 
        VALUES ($1, $2, $3, $4) 
        RETURNING ID_notificacion`,
       [ID_usuario, titulo, cuerpo, data ? JSON.stringify(data) : null]
     );
-    console.log(`✅ Notificación guardada en BD: ${result.rows[0].id_notificacion}`);
+    
+    const idNotificacion = result.rows[0].id_notificacion;
+    console.log(`✅ Notificación guardada en BD con ID: ${idNotificacion}`);
     return result.rows[0];
+    
   } catch (error) {
     console.error('❌ Error guardando notificación en BD:', error);
+    
+    // Log detallado del error
+    if (error) { // Foreign key violation
+      console.error('🔍 El usuario no existe en la base de datos');
+    }
+    
     throw error;
   }
 }
 
-// 📍 ENDPOINT: Agregar al carrito (versión simplificada)
+// 📍 ENDPOINT: Agregar al carrito (CON MÁS LOGS)
 app.post('/agregar-carrito', async (req: Request, res: Response) => {
   try {
     const { ID_usuario, ID_publicacion } = req.body;
@@ -502,6 +529,7 @@ app.post('/agregar-carrito', async (req: Request, res: Response) => {
     }
 
     const articulo = datosArticulo.rows[0];
+    console.log(`📦 Artículo: ${articulo.nombre_articulo}, Vendedor: ${articulo.id_vendedor}`);
 
     // Insertar en carrito
     await pool.query(
@@ -513,6 +541,8 @@ app.post('/agregar-carrito', async (req: Request, res: Response) => {
 
     // Crear notificación para el VENDEDOR
     if (articulo.id_vendedor && articulo.id_vendedor !== ID_usuario) {
+      console.log(`👤 Creando notificación para vendedor: ${articulo.id_vendedor}`);
+      
       await guardarNotificacionBD(
         articulo.id_vendedor,
         '¡Nuevo interés en tu artículo! 🛒',
@@ -524,7 +554,9 @@ app.post('/agregar-carrito', async (req: Request, res: Response) => {
           timestamp: new Date().toISOString()
         }
       );
-      console.log(`✅ Notificación creada para vendedor ${articulo.nombre_vendedor}`);
+      console.log(`✅ Notificación creada para vendedor ${articulo.nombre_vendedor} (ID: ${articulo.id_vendedor})`);
+    } else {
+      console.log('ℹ️ No se crea notificación (mismo usuario o vendedor no encontrado)');
     }
 
     res.status(201).json({ 
@@ -538,6 +570,38 @@ app.post('/agregar-carrito', async (req: Request, res: Response) => {
   }
 });
 
+
+// 📍 ENDPOINT: Probar notificaciones manualmente
+app.post('/probar-notificacion', async (req: Request, res: Response) => {
+  try {
+    const { ID_usuario, mensaje } = req.body;
+
+    if (!ID_usuario) {
+      return res.status(400).json({ error: 'ID_usuario es obligatorio' });
+    }
+
+    console.log(`🧪 Probando notificación para usuario ${ID_usuario}`);
+
+    await guardarNotificacionBD(
+      ID_usuario,
+      'Notificación de prueba ✅',
+      mensaje || '¡Esta es una notificación de prueba!',
+      {
+        tipo: 'test',
+        timestamp: new Date().toISOString()
+      }
+    );
+
+    res.json({ 
+      mensaje: 'Notificación de prueba creada correctamente',
+      ID_usuario: ID_usuario
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error en prueba de notificación:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+});
 // 📍 ENDPOINT: Marcar como vendido (versión simplificada)
 app.delete('/marcar-vendido/:id', async (req: Request, res: Response) => {
   const idPublicacion = Number(req.params.id);
