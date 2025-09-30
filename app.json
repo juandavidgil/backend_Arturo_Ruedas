@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "a34d78ab-1d2b-4f9c-b5be-d414daffebe8"
+      }
+    },
+    "android": {
+      "package": "com.juandavidgil.backendarturoruedas"
+    }
+  }
+}
